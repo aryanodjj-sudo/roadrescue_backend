@@ -1,0 +1,18 @@
+# Dependencies
+node_modules
+
+# Environment files — real values (Mongo URI, JWT secret, etc.) must
+# never be committed. .env.example stays tracked as the template.
+.env
+.env.production
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS/editor files
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
