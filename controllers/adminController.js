@@ -3,6 +3,7 @@ import Mechanic from "../models/Mechanic.js";
 import Vehicle from "../models/Vehicle.js";
 import ServiceRequest from "../models/ServiceRequest.js";
 import Payment from "../models/Payment.js";
+import Complaint from "../models/Complaint.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
 // @route  GET /api/admin/users
@@ -128,10 +129,61 @@ const getReports = asyncHandler(async (req, res) => {
   });
 });
 
+// @route  GET /api/admin/complaints
+// @access Private (admin)
+// Optional query: type ("Complaint" | "Dispute"), status
+const getComplaints = asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.type) filter.type = req.query.type;
+  if (req.query.status) filter.status = req.query.status;
+
+  const complaints = await Complaint.find(filter)
+    .populate("submittedBy", "name email role")
+    .populate({
+      path: "serviceRequest",
+      populate: [
+        { path: "vehicle" },
+        { path: "mechanic", populate: { path: "user", select: "name" } },
+      ],
+    })
+    .sort({ createdAt: -1 });
+
+  res.json({ success: true, complaints });
+});
+
+// @route  PUT /api/admin/complaints/:id/status
+// @access Private (admin)
+// Body: { status: "Pending" | "In Progress" | "Resolved", adminNote? }
+const updateComplaintStatus = asyncHandler(async (req, res) => {
+  const { status, adminNote } = req.body;
+
+  if (!["Pending", "In Progress", "Resolved"].includes(status)) {
+    res.status(400);
+    throw new Error(
+      'status must be "Pending", "In Progress" or "Resolved"'
+    );
+  }
+
+  const complaint = await Complaint.findById(req.params.id);
+  if (!complaint) {
+    res.status(404);
+    throw new Error("Complaint not found");
+  }
+
+  complaint.status = status;
+  if (adminNote !== undefined) complaint.adminNote = adminNote;
+  complaint.resolvedAt = status === "Resolved" ? new Date() : null;
+
+  const updated = await complaint.save();
+  res.json({ success: true, complaint: updated });
+});
+
 export {
   getUsers,
   getMechanics,
   verifyMechanic,
   getServiceRequests,
   getReports,
+  getComplaints,
+  updateComplaintStatus,
 };

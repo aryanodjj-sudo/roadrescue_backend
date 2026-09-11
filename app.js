@@ -13,9 +13,17 @@ import reviewRoutes from "./routes/reviewRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+import contactRoutes from "./routes/contactRoutes.js";
+import complaintRoutes from "./routes/complaintRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 
 const app = express();
+
+// Render (and most hosts) sit behind a reverse proxy — without this,
+// req.ip resolves to the proxy's address, not the real visitor's, which
+// would make the contact-form cooldown apply to everyone at once instead
+// of per-visitor.
+app.set("trust proxy", 1);
 
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
   .split(",")
@@ -54,6 +62,8 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/complaints", complaintRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

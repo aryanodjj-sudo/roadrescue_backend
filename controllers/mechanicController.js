@@ -151,7 +151,11 @@ const updateMechanicProfile = asyncHandler(async (req, res) => {
 
 // @route  PUT /api/mechanics/status
 // @access Private (mechanic only)
-// Body: { isOnline: boolean }
+// Body: { isOnline: boolean, location?: { lat, lng } }
+// Accepting location here (in addition to /profile) lets the frontend send
+// a fresh GPS fix in the same request as "go online" — /mechanics/nearby
+// filters out mechanics with no location set, so without this a mechanic
+// could be online + approved and still never show up in a user's search.
 const updateMechanicStatus = asyncHandler(async (req, res) => {
   const mechanic = await Mechanic.findOne({ user: req.user._id });
 
@@ -166,9 +170,19 @@ const updateMechanicStatus = asyncHandler(async (req, res) => {
   }
 
   mechanic.isOnline = !!req.body.isOnline;
+
+  const { location } = req.body;
+  if (location?.lat !== undefined && location?.lng !== undefined) {
+    mechanic.location = { lat: location.lat, lng: location.lng };
+  }
+
   const updated = await mechanic.save();
 
-  res.json({ success: true, isOnline: updated.isOnline });
+  res.json({
+    success: true,
+    isOnline: updated.isOnline,
+    location: updated.location,
+  });
 });
 
 export {
