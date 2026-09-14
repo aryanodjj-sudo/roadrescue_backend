@@ -7,6 +7,7 @@ import {
   getReports,
   getComplaints,
   updateComplaintStatus,
+  getReviews,
 } from "../controllers/adminController.js";
 import protect from "../middleware/authMiddleware.js";
 import authorize from "../middleware/roleMiddleware.js";
@@ -22,5 +23,6 @@ router.get("/service-requests", getServiceRequests);
 router.get("/reports", getReports);
 router.get("/complaints", getComplaints);
 router.put("/complaints/:id/status", updateComplaintStatus);
+router.get("/reviews", getReviews);
 
 export default router;

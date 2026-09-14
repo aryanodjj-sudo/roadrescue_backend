@@ -4,6 +4,7 @@ import Vehicle from "../models/Vehicle.js";
 import ServiceRequest from "../models/ServiceRequest.js";
 import Payment from "../models/Payment.js";
 import Complaint from "../models/Complaint.js";
+import Review from "../models/Review.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
 // @route  GET /api/admin/users
@@ -178,6 +179,20 @@ const updateComplaintStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, complaint: updated });
 });
 
+// @route  GET /api/admin/reviews
+// @access Private (admin)
+// Platform-wide reviews list — used to replace the mock reviews shown
+// previously in Services & Reviews, now backed by real customer reviews.
+const getReviews = asyncHandler(async (req, res) => {
+  const reviews = await Review.find({})
+    .populate("user", "name")
+    .populate({ path: "mechanic", populate: { path: "user", select: "name" } })
+    .populate("serviceRequest", "serviceType")
+    .sort({ createdAt: -1 });
+
+  res.json({ success: true, reviews });
+});
+
 export {
   getUsers,
   getMechanics,
@@ -186,4 +201,5 @@ export {
   getReports,
   getComplaints,
   updateComplaintStatus,
+  getReviews,
 };

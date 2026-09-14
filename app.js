@@ -16,6 +16,8 @@ import paymentRoutes from "./routes/paymentRoutes.js";
 import contactRoutes from "./routes/contactRoutes.js";
 import complaintRoutes from "./routes/complaintRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
+import couponRoutes from "./routes/couponRoutes.js";
+import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 
 const app = express();
 
@@ -62,6 +64,8 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/coupons", couponRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/complaints", complaintRoutes);
 

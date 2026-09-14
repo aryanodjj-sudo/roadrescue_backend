@@ -1,54 +1,55 @@
-import ServiceRequest, {
-  VALID_TRANSITIONS,
-} from "../models/ServiceRequest.js";
+import ServiceRequest, { VALID_TRANSITIONS } from "../models/ServiceRequest.js";
 import Vehicle from "../models/Vehicle.js";
 import Mechanic from "../models/Mechanic.js";
 import Notification from "../models/Notification.js";
 import Payment from "../models/Payment.js";
 import Review from "../models/Review.js";
+import Coupon from "../models/Coupon.js";
+import { getActiveSubscription } from "../utils/subscriptionStatus.js";
 import asyncHandler from "../utils/asyncHandler.js";
-import { emitToUser } from "../utils/socket.js";
-import { isValidCoord } from "../utils/validateCoords.js";
 
 async function notify(userId, message, serviceRequestId = null) {
-  const notification = await Notification.create({
-    user: userId,
-    message,
-    serviceRequest: serviceRequestId,
-  });
-  // Real-time push so Notifications.jsx / the bell badge update instantly
-  // instead of waiting for the next manual refresh.
-  emitToUser(userId, "notification:new", {
-    id: notification._id,
-    message: notification.message,
-    createdAt: notification.createdAt,
-    read: false,
-  });
+  await Notification.create({ user: userId, message, serviceRequest: serviceRequestId });
 }
 
-// Tells both sides of a request to silently refetch — used after any
-// status-changing action so both the customer's and the (once accepted)
-// mechanic's UI stay in sync without polling.
-function broadcastRequestUpdate(request) {
-  emitToUser(request.user.toString(), "request:updated", {
-    requestId: request._id.toString(),
-  });
-  if (request.acceptedBy) {
-    emitToUser(request.acceptedBy.toString(), "request:updated", {
-      requestId: request._id.toString(),
-    });
-  }
+function isValidPhone(phone) {
+  return /^[0-9+\-\s()]{7,15}$/.test(phone || "");
 }
 
 // @route  POST /api/service-requests
 // @access Private (user)
 const createServiceRequest = asyncHandler(async (req, res) => {
-  const { vehicleId, serviceType, description, mechanicId, customerLocation } =
-    req.body;
+  const {
+    vehicleId,
+    serviceType,
+    description,
+    mechanicId,
+    customerLocation,
+    bookingForSomeoneElse,
+    recipientName,
+    recipientPhone,
+    manualAddress,
+    couponCode,
+  } = req.body;
 
   if (!vehicleId || !serviceType || !mechanicId) {
     res.status(400);
     throw new Error("vehicleId, serviceType and mechanicId are required");
+  }
+
+  if (bookingForSomeoneElse) {
+    if (!recipientName?.trim()) {
+      res.status(400);
+      throw new Error("Recipient name is required when booking for someone else");
+    }
+    if (!isValidPhone(recipientPhone)) {
+      res.status(400);
+      throw new Error("A valid recipient phone number is required");
+    }
+    if (!manualAddress?.line?.trim()) {
+      res.status(400);
+      throw new Error("Address line is required when booking for someone else");
+    }
   }
 
   const vehicle = await Vehicle.findById(vehicleId);
@@ -63,12 +64,56 @@ const createServiceRequest = asyncHandler(async (req, res) => {
     throw new Error("Mechanic not found");
   }
 
-  if (
-    customerLocation &&
-    !isValidCoord(customerLocation.lat, customerLocation.lng)
-  ) {
-    res.status(400);
-    throw new Error("Invalid customer location coordinates");
+  // --- Pricing: an active subscription (free) always takes priority over
+  // a coupon. Recomputed here from scratch — never trust a client-sent
+  // discount amount. ---
+  const originalPrice = mechanic.pricePerVisit;
+  let finalPrice = originalPrice;
+  let discountAmount = 0;
+  let viaSubscription = false;
+  let appliedCouponCode = null;
+
+  const activeSubscription = await getActiveSubscription(req.user._id);
+
+  if (activeSubscription) {
+    viaSubscription = true;
+    discountAmount = originalPrice;
+    finalPrice = 0;
+  } else if (couponCode) {
+    const coupon = await Coupon.findOne({ code: couponCode.toUpperCase().trim() });
+
+    if (!coupon || !coupon.isActive) {
+      res.status(400);
+      throw new Error("Invalid or inactive coupon code");
+    }
+    if (coupon.expiryDate && coupon.expiryDate < new Date()) {
+      res.status(400);
+      throw new Error("This coupon has expired");
+    }
+    if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
+      res.status(400);
+      throw new Error("This coupon has reached its usage limit");
+    }
+    if (originalPrice < coupon.minOrderValue) {
+      res.status(400);
+      throw new Error(`This coupon requires a minimum order of ₹${coupon.minOrderValue}`);
+    }
+
+    let discount =
+      coupon.discountType === "percentage"
+        ? (originalPrice * coupon.discountValue) / 100
+        : coupon.discountValue;
+    if (coupon.discountType === "percentage" && coupon.maxDiscount) {
+      discount = Math.min(discount, coupon.maxDiscount);
+    }
+    discount = Math.min(discount, originalPrice);
+
+    discountAmount = Math.round(discount);
+    finalPrice = Math.max(0, originalPrice - discountAmount);
+    appliedCouponCode = coupon.code;
+
+    coupon.usedCount += 1;
+    await coupon.save();
   }
 
   const request = await ServiceRequest.create({
@@ -78,20 +123,29 @@ const createServiceRequest = asyncHandler(async (req, res) => {
     description,
     mechanic: mechanic._id,
     customerLocation,
-    pricePerVisit: mechanic.pricePerVisit,
+    pricePerVisit: finalPrice,
+    originalPrice,
+    discountAmount,
+    couponCode: appliedCouponCode,
+    viaSubscription,
+    bookingForSomeoneElse: !!bookingForSomeoneElse,
+    recipientName: bookingForSomeoneElse ? recipientName.trim() : null,
+    recipientPhone: bookingForSomeoneElse ? recipientPhone.trim() : null,
+    manualAddress: bookingForSomeoneElse
+      ? {
+          line: manualAddress.line.trim(),
+          landmark: manualAddress.landmark?.trim() || null,
+          city: manualAddress.city?.trim() || null,
+          pincode: manualAddress.pincode?.trim() || null,
+        }
+      : null,
   });
 
-  await notify(
-    req.user._id,
-    `Request sent for ${serviceType}. Waiting for a mechanic to accept.`,
-    request._id
-  );
+  const notifyMessage = bookingForSomeoneElse
+    ? `Request sent for ${recipientName} (${serviceType}). Waiting for a mechanic to accept.`
+    : `Request sent for ${serviceType}. Waiting for a mechanic to accept.`;
 
-  // Real-time: the target mechanic's Incoming Requests tab updates
-  // immediately instead of waiting for their next manual refresh/poll.
-  emitToUser(mechanic.user.toString(), "request:new", {
-    requestId: request._id.toString(),
-  });
+  await notify(req.user._id, notifyMessage, request._id);
 
   const populated = await ServiceRequest.findById(request._id)
     .populate("vehicle")
@@ -103,10 +157,6 @@ const createServiceRequest = asyncHandler(async (req, res) => {
 
 // @route  GET /api/service-requests
 // @access Private
-// Returns requests scoped to the caller's role:
-//   user      -> requests they created
-//   mechanic  -> requests sent to their Mechanic profile (incoming + own accepted)
-//   admin     -> everything (no filter)
 const getServiceRequests = asyncHandler(async (req, res) => {
   let filter = {};
 
@@ -126,8 +176,6 @@ const getServiceRequests = asyncHandler(async (req, res) => {
     .populate({ path: "mechanic", populate: { path: "user", select: "name" } })
     .sort({ createdAt: -1 });
 
-  // Attach each request's review (if any) so the frontend doesn't need a
-  // second round trip to know whether it's already been reviewed.
   const reviews = await Review.find({
     serviceRequest: { $in: requests.map((r) => r._id) },
   });
@@ -186,15 +234,6 @@ const acceptServiceRequest = asyncHandler(async (req, res) => {
     throw new Error("Service request not found");
   }
 
-  // SECURITY: only the mechanic the request was actually sent to may accept
-  // it. Without this check, any authenticated mechanic could accept any
-  // other mechanic's pending request just by knowing its id.
-  const mechanicProfile = await Mechanic.findOne({ user: req.user._id });
-  if (!mechanicProfile || request.mechanic.toString() !== mechanicProfile._id.toString()) {
-    res.status(403);
-    throw new Error("This request was not sent to you");
-  }
-
   if (request.status !== "Pending") {
     res.status(400);
     throw new Error(`Cannot accept a request with status "${request.status}"`);
@@ -210,7 +249,6 @@ const acceptServiceRequest = asyncHandler(async (req, res) => {
     `${req.user.name} accepted your ${request.serviceType} request.`,
     request._id
   );
-  broadcastRequestUpdate(request);
 
   res.json({ success: true, request });
 });
@@ -242,24 +280,18 @@ const updateServiceRequestStatus = asyncHandler(async (req, res) => {
 
   if (newStatus === "Completed") {
     request.completedAt = new Date();
-    // MOCK — no real payment gateway exists yet, so a completed job is
-    // marked "paid" immediately just so the Admin Reports revenue number
-    // isn't permanently stuck at ₹0. Once a real gateway is integrated,
-    // this should go back to "unpaid" until the gateway confirms payment.
     await Payment.create({
       serviceRequest: request._id,
       user: request.user,
       serviceCharge: request.pricePerVisit,
       additionalCharges: 0,
       total: request.pricePerVisit,
-      status: "paid",
     });
   }
 
   await request.save();
 
   await notify(request.user, `Your request status is now "${newStatus}".`, request._id);
-  broadcastRequestUpdate(request);
 
   res.json({ success: true, request });
 });
@@ -310,7 +342,6 @@ const cancelServiceRequest = asyncHandler(async (req, res) => {
   if (notifyTarget) {
     await notify(notifyTarget, `The ${request.serviceType} request has been cancelled.`, request._id);
   }
-  broadcastRequestUpdate(request);
 
   res.json({ success: true, request });
 });

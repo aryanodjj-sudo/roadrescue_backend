@@ -33,6 +33,19 @@ const statusHistoryEntrySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Structured delivery address — used only when the request is booked on
+// behalf of someone else, so the mechanic knows exactly where to go
+// without needing a paid map/geocoding API.
+const manualAddressSchema = new mongoose.Schema(
+  {
+    line: { type: String, default: null },
+    landmark: { type: String, default: null },
+    city: { type: String, default: null },
+    pincode: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const serviceRequestSchema = new mongoose.Schema(
   {
     user: {
@@ -52,9 +65,6 @@ const serviceRequestSchema = new mongoose.Schema(
     },
     description: { type: String, default: "" },
 
-    // The mechanic PROFILE the request was sent to (chosen from the nearby
-    // list). Distinct from `acceptedBy`, which is set only once a mechanic
-    // actually accepts — mirrors the frontend's mechanic vs mechanicId split.
     mechanic: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Mechanic",
@@ -71,6 +81,11 @@ const serviceRequestSchema = new mongoose.Schema(
       lng: { type: Number, default: null },
     },
 
+    bookingForSomeoneElse: { type: Boolean, default: false },
+    recipientName: { type: String, default: null },
+    recipientPhone: { type: String, default: null },
+    manualAddress: { type: manualAddressSchema, default: null },
+
     status: {
       type: String,
       enum: REQUEST_STATUSES,
@@ -81,7 +96,15 @@ const serviceRequestSchema = new mongoose.Schema(
       default: () => [{ status: "Pending", at: new Date() }],
     },
 
+    // Pricing — pricePerVisit is what's actually charged (already
+    // discounted / zero if covered by subscription). originalPrice is
+    // kept so invoices can always show "what it would've cost".
     pricePerVisit: { type: Number, default: 0 },
+    originalPrice: { type: Number, default: 0 },
+    discountAmount: { type: Number, default: 0 },
+    couponCode: { type: String, default: null },
+    viaSubscription: { type: Boolean, default: false },
+
     completedAt: { type: Date, default: null },
   },
   { timestamps: true }
