@@ -46,6 +46,24 @@ const manualAddressSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Extra fields collected only for certain serviceType values. Everything
+// here is optional at the schema level — required-ness is enforced per
+// serviceType in the controller (fuel needs fuelType+litres, tyre needs
+// tyreVehicleType+tyrePosition+tyreProblem).
+const serviceDetailsSchema = new mongoose.Schema(
+  {
+    // Fuel Delivery
+    fuelType: { type: String, enum: ["petrol", "diesel"], default: null },
+    litres: { type: Number, default: null },
+
+    // Flat Tyre Repair
+    tyreVehicleType: { type: String, enum: ["car", "bike"], default: null },
+    tyrePosition: { type: String, default: null }, // e.g. "front-left" or "front"
+    tyreProblem: { type: String, default: null }, // e.g. "puncture", "air-fill"
+  },
+  { _id: false }
+);
+
 const serviceRequestSchema = new mongoose.Schema(
   {
     user: {
@@ -85,6 +103,7 @@ const serviceRequestSchema = new mongoose.Schema(
     recipientName: { type: String, default: null },
     recipientPhone: { type: String, default: null },
     manualAddress: { type: manualAddressSchema, default: null },
+    serviceDetails: { type: serviceDetailsSchema, default: null },
 
     status: {
       type: String,

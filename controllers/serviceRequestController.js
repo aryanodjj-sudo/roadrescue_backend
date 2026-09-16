@@ -6,6 +6,8 @@ import Payment from "../models/Payment.js";
 import Review from "../models/Review.js";
 import Coupon from "../models/Coupon.js";
 import { getActiveSubscription } from "../utils/subscriptionStatus.js";
+import { calculateDistance, estimateETA } from "../utils/calculateDistance.js";
+import { calculateFuelBill } from "../utils/pricing.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
 async function notify(userId, message, serviceRequestId = null) {
@@ -29,12 +31,38 @@ const createServiceRequest = asyncHandler(async (req, res) => {
     recipientName,
     recipientPhone,
     manualAddress,
+    serviceDetails,
     couponCode,
   } = req.body;
 
   if (!vehicleId || !serviceType || !mechanicId) {
     res.status(400);
     throw new Error("vehicleId, serviceType and mechanicId are required");
+  }
+
+  // --- Per-service required fields, validated server-side --------------
+  let computedFuelBill = null;
+  let cleanServiceDetails = null;
+
+  if (serviceType === "fuel") {
+    computedFuelBill = calculateFuelBill(serviceDetails?.fuelType, serviceDetails?.litres);
+    if (!computedFuelBill) {
+      res.status(400);
+      throw new Error("Select a valid fuel type (petrol/diesel) and litres for Fuel Delivery");
+    }
+    cleanServiceDetails = {
+      fuelType: serviceDetails.fuelType,
+      litres: Number(serviceDetails.litres),
+    };
+  }
+
+  if (serviceType === "tyre") {
+    const { tyreVehicleType, tyrePosition, tyreProblem } = serviceDetails || {};
+    if (!tyreVehicleType || !tyrePosition || !tyreProblem) {
+      res.status(400);
+      throw new Error("Vehicle type, tyre position, and problem are required for Flat Tyre Repair");
+    }
+    cleanServiceDetails = { tyreVehicleType, tyrePosition, tyreProblem };
   }
 
   if (bookingForSomeoneElse) {
@@ -67,7 +95,7 @@ const createServiceRequest = asyncHandler(async (req, res) => {
   // --- Pricing: an active subscription (free) always takes priority over
   // a coupon. Recomputed here from scratch — never trust a client-sent
   // discount amount. ---
-  const originalPrice = mechanic.pricePerVisit;
+  const originalPrice = serviceType === "fuel" ? computedFuelBill.total : mechanic.pricePerVisit;
   let finalPrice = originalPrice;
   let discountAmount = 0;
   let viaSubscription = false;
@@ -128,6 +156,7 @@ const createServiceRequest = asyncHandler(async (req, res) => {
     discountAmount,
     couponCode: appliedCouponCode,
     viaSubscription,
+    serviceDetails: cleanServiceDetails,
     bookingForSomeoneElse: !!bookingForSomeoneElse,
     recipientName: bookingForSomeoneElse ? recipientName.trim() : null,
     recipientPhone: bookingForSomeoneElse ? recipientPhone.trim() : null,
