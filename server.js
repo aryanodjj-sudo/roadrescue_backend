@@ -1,5 +1,4 @@
-import dotenv from "dotenv";
-dotenv.config();
+import "dotenv/config"; // MUST be the first import (ESM hoists imports)
 
 import http from "http";
 import connectDB from "./config/db.js";

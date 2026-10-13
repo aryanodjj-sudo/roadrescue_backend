@@ -3,10 +3,23 @@ import Razorpay from "razorpay";
 import Payment from "../models/Payment.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+// Lazy init: server start par crash na ho agar keys missing hain;
+// error sirf tab aayega jab payment API actually use ho.
+let razorpayInstance;
+const getRazorpay = () => {
+  if (!razorpayInstance) {
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      throw new Error(
+        "Razorpay keys missing: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment"
+      );
+    }
+    razorpayInstance = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+  }
+  return razorpayInstance;
+};
 
 // @route  GET /api/payments/:requestId
 // @access Private (the request's owner, or admin)
@@ -56,7 +69,7 @@ const createOrder = asyncHandler(async (req, res) => {
     throw new Error("This invoice has already been paid");
   }
 
-  const order = await razorpay.orders.create({
+  const order = await getRazorpay().orders.create({
     amount: Math.round(payment.total * 100), // paise
     currency: "INR",
     receipt: `rr_${payment.serviceRequest}`,
