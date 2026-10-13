@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
 
 // Represents an invoice/payment record for a completed service request.
-// NOTE: this does NOT process real payments — no gateway is integrated.
-// It only stores the amount breakdown so Invoice.jsx has real data to show.
+// Backed by Razorpay in test mode: a Payment is created with status
+// "unpaid" the moment a request is marked Completed, and flips to "paid"
+// once the customer completes checkout and the signature is verified.
 const paymentSchema = new mongoose.Schema(
   {
     serviceRequest: {
@@ -24,6 +25,9 @@ const paymentSchema = new mongoose.Schema(
       enum: ["unpaid", "paid"],
       default: "unpaid",
     },
+    razorpayOrderId: { type: String, default: null },
+    razorpayPaymentId: { type: String, default: null },
+    paidAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

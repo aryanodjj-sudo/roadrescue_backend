@@ -4,6 +4,7 @@ import morgan from "morgan";
 import helmet from "helmet";
 
 import authRoutes from "./routes/authRoutes.js";
+import { authLimiter, publicWriteLimiter } from "./middleware/rateLimiter.js";
 import userRoutes from "./routes/userRoutes.js";
 import vehicleRoutes from "./routes/vehicleRoutes.js";
 import mechanicRoutes from "./routes/mechanicRoutes.js";
@@ -54,7 +55,7 @@ app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "RoadRescue API is running" });
 });
 
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/mechanics", mechanicRoutes);
@@ -66,7 +67,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
-app.use("/api/contact", contactRoutes);
+app.use("/api/contact", publicWriteLimiter, contactRoutes);
 app.use("/api/complaints", complaintRoutes);
 
 app.use(notFound);

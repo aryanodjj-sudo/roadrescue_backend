@@ -9,9 +9,15 @@ import { getActiveSubscription } from "../utils/subscriptionStatus.js";
 import { calculateDistance, estimateETA } from "../utils/calculateDistance.js";
 import { calculateFuelBill } from "../utils/pricing.js";
 import asyncHandler from "../utils/asyncHandler.js";
+import { emitToUser } from "../utils/socket.js";
 
 async function notify(userId, message, serviceRequestId = null) {
   await Notification.create({ user: userId, message, serviceRequest: serviceRequestId });
+
+  // Push a real-time event too, on top of the saved DB record — so the
+  // recipient sees an instant toast/update even if they're not on the
+  // Notifications page at all. Safe no-op if they have no active socket.
+  emitToUser(userId, "notification:new", { message, serviceRequestId });
 }
 
 function isValidPhone(phone) {
